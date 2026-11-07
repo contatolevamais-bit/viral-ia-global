@@ -1,0 +1,48 @@
+
+name: VIRAL IA GLOBAL - gerar videos
+
+on:
+  workflow_dispatch:
+    inputs:
+      data:
+        description: 'Data local YYYY-MM-DD (deixe vazio para usar data de Fortaleza)'
+        required: false
+        type: string
+
+  schedule:
+    - cron: '20 10 * * *'
+
+permissions:
+  contents: read
+
+jobs:
+  render:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Instalar ferramentas gratuitas
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y espeak-ng ffmpeg fonts-dejavu-core
+          python -m pip install --disable-pip-version-check 'Pillow>=10,<13'
+
+      - name: Gerar 3 vídeos verticais
+        env:
+          REQUEST_DATE: ${{ inputs.data }}
+          TZ: America/Fortaleza
+          PROJECT_START: '2026-11-07'
+        shell: bash
+        run: |
+          DATE="${REQUEST_DATE:-$(TZ=America/Fortaleza date +%F)}"
+          python src/generate.py --date "$DATE" --count 3 --out output
+
+      - name: Guardar vídeos para download
+        uses: actions/upload-artifact@v4
+        with:
+          name: viral-ia-videos-${{ github.run_number }}
+          path: output/
+          retention-days: 7
+  
