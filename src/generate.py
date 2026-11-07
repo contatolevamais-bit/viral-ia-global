@@ -114,8 +114,24 @@ def create_video(topic, index, output, silent=False):
             render_card(pic,headlines[scene],phrase,scene,index,index)
             voice(phrase,aud,silent)
             sec=duration(aud)+0.4
-            run(['ffmpeg','-y','-loop','1','-framerate','24','-i',str(pic),'-i',str(aud),'-t',f'{sec:.2f}', '-vf','format=yuv420p','-r','24','-c:v','libx264','-preset','ultrafast','-crf','28','-c:a','aac','-b:a','96k','-ar','44100','-shortest',str(vid)])
-            parts.append(vid)
+            run([
+    'ffmpeg', '-y',
+    '-loop', '1',
+    '-framerate', '30',
+    '-i', str(pic),
+    '-i', str(aud),
+    '-t', f'{sec:.2f}',
+    '-vf', 'scale=720:1280,zoompan=z=\'min(zoom+0.0008,1.08)\':d=1:s=720x1280,format=yuv420p',
+    '-r', '30',
+    '-c:v', 'libx264',
+    '-preset', 'medium',
+    '-crf', '23',
+    '-c:a', 'aac',
+    '-b:a', '160k',
+    '-ar', '44100',
+    '-shortest',
+    str(vid)
+])
         playlist=tmp/'concat.txt';playlist.write_text(''.join(f"file '{p}'\n" for p in parts))
         run(['ffmpeg','-y','-f','concat','-safe','0','-i',str(playlist),'-c','copy',str(output)])
     return title
