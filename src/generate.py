@@ -1,101 +1,96 @@
-        draw.text((56, y), row, font=body_font, fill=(222, 230, 245))
-        y += 42
-    draw.text((54, 1206), f'CURIOSIDADE {number:02d}  •  CENA {scene+1}/5',
-              font=font(BOLD, 21), fill=(134, 170, 196))
-    picture.save(path)
+#!/usr/bin/env python3
+"""VIRAL IA GLOBAL v1.1: cria vídeos verticais para revisão humana.
+Uso: python src/generate.py --date 2026-11-07 --count 3 --out output
+Não publica automaticamente nas redes sociais.
+"""
+import argparse
+import datetime as dt
+import json
+import math
+import os
+import random
+import subprocess
+import sys
+import tempfile
+from pathlib import Path
+
+from PIL import Image, ImageDraw, ImageFont
+
+ROOT = Path(__file__).resolve().parents[1]
+WIDTH, HEIGHT = 720, 1280
+FONT = '/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf'
+BOLD = '/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf'
 
 
-def create_voice(narration, destination, silent=False):
-    if silent:
-        seconds = max(4.0, len(narration.split()) / 2.3)
-        run(['ffmpeg', '-y', '-f', 'lavfi', '-i', 'anullsrc=r=44100:cl=mono',
-             '-t', str(seconds), '-c:a', 'pcm_s16le', str(destination)])
-        return
-    mp3_file = destination.with_suffix('.mp3')
-    run([sys.executable, '-m', 'edge_tts', '--voice',
-         'pt-BR-FranciscaNeural', '--text', narration,
-         '--write-media', str(mp3_file)])
-    run(['ffmpeg', '-y', '-i', str(mp3_file), '-vn',
-         '-af', 'highpass=f=90,lowpass=f=11000,acompressor=threshold=-18dB:ratio=2:attack=20:release=150,loudnorm=I=-16:TP=-1.5:LRA=11',
-         '-ar', '44100', '-ac', '1', '-c:a', 'pcm_s16le', str(destination)])
+def run(command):
+    result = subprocess.run(command, text=True, capture_output=True)
+    if result.returncode:
+        raise RuntimeError(
+            f"Comando falhou (código {result.returncode}): {' '.join(map(str, command))}\n"
+            f"{result.stderr[-3500:]}"
+        )
+    return result.stdout
 
 
-def make_video(topic, number, output, silent=False):
-    if not isinstance(topic, list) or len(topic) != 4:
-        raise ValueError('Cada tema precisa de título e exatamente três frases.')
-    title, first, second, third = topic
-    narration = [f'Você sabia? {title}', first, second, third,
-                 'Quer mais descobertas? Siga nosso perfil para ver a próxima.']
-    headings = [title, 'Primeira descoberta', 'O detalhe surpreendente',
-                'Entenda o fenômeno', 'Quer descobrir mais?']
-    output = Path(output).resolve()
-    output.parent.mkdir(parents=True, exist_ok=True)
-    with tempfile.TemporaryDirectory() as temporary:
-        folder = Path(temporary)
-        parts = []
-        for scene, phrase in enumerate(narration):
-            still = folder / f'scene_{scene}.png'
-            audio = folder / f'voice_{scene}.wav'
-            clip = folder / f'part_{scene}.mp4'
-            render_scene(still, headings[scene], phrase, scene, number)
-            create_voice(phrase, audio, silent)
-            seconds = audio_duration(audio) + 0.4
-            effect = "scale=720:1280,zoompan=z='min(zoom+0.0008,1.08)':d=1:s=720x1280:fps=30,format=yuv420p"
-            run(['ffmpeg', '-y', '-loop', '1', '-framerate', '30',
-                 '-i', str(still), '-i', str(audio), '-t', f'{seconds:.2f}',
-                 '-vf', effect, '-r', '30', '-c:v', 'libx264',
-                 '-preset', 'ultrafast', '-crf', '25', '-c:a', 'aac',
-                 '-b:a', '160k', '-ar', '44100', '-shortest', str(clip)])
-            parts.append(clip)
-        playlist = folder / 'concat.txt'
-        playlist.write_text(''.join(f"file '{part.as_posix()}'\n" for part in parts),
-                            encoding='utf-8')
-        run(['ffmpeg', '-y', '-f', 'concat', '-safe', '0', '-i', str(playlist),
-             '-c', 'copy', str(output)])
-    return title
+def audio_duration(path):
+    output = run([
+        'ffprobe', '-v', 'error', '-show_entries', 'format=duration',
+        '-of', 'default=noprint_wrappers=1:nokey=1', str(path)
+    ])
+    return float(output.strip())
 
 
-def main():
-    parser = argparse.ArgumentParser()
-    parser.add_argument('--date', default=dt.date.today().isoformat())
-    parser.add_argument('--count', type=int, default=3)
-    parser.add_argument('--out', default='output')
-    parser.add_argument('--silent-demo', action='store_true',
-                        help='Apenas teste técnico sem voz; não publicar')
-    arguments = parser.parse_args()
-    if not 1 <= arguments.count <= 3:
-        parser.error('--count deve ser entre 1 e 3')
-    themes = json.loads((ROOT / 'data' / 'temas.json').read_text(encoding='utf-8'))
-    start = dt.date.fromisoformat(os.environ.get('PROJECT_START', '2026-11-07'))
-    day = dt.date.fromisoformat(arguments.date)
-    if day < start:
-        raise SystemExit('A data solicitada é anterior ao início do projeto.')
-    offset = (day - start).days * 3
-    selected = themes[offset:offset + arguments.count]
-    if len(selected) != arguments.count:
-        raise SystemExit('Biblioteca esgotada: adicione novos temas a data/temas.json.')
-    folder = Path(arguments.out)
-    folder.mkdir(parents=True, exist_ok=True)
-    metadata = []
-    for index, topic in enumerate(selected, 1):
-        destination = folder / f'{arguments.date}_video_{index:02d}.mp4'
-        print(f'Gerando: {topic[0]}', flush=True)
-        title = make_video(topic, offset + index, destination, arguments.silent_demo)
-        metadata.append({
-            'arquivo': destination.name,
-            'titulo': title,
-            'legenda': f'{title} 🔬 Você já sabia? #ciencia #curiosidades #descobertas',
-            'status': 'REVISAR ANTES DE PUBLICAR',
-            'simulacao_sem_voz': arguments.silent_demo
-        })
-    (folder / 'publicacoes.json').write_text(
-        json.dumps(metadata, ensure_ascii=False, indent=2), encoding='utf-8')
-    (folder / 'LEIA_ANTES_DE_PUBLICAR.txt').write_text(
-        'Revise fatos, narração, sincronização e direitos. Postagem no Kwai é manual. '
-        'Se gerou com --silent-demo, NÃO publique: o vídeo está sem narração.\n',
-        encoding='utf-8')
-    print(f'Concluído: {len(metadata)} vídeos em {folder}', flush=True)
+def font(path, size):
+    try:
+        return ImageFont.truetype(path, size)
+    except OSError:
+        return ImageFont.load_default()
 
 
-if __name__ == '__main__':
-    main()
+def wrap(draw, text, chosen_font, max_width):
+    rows, current = [], ''
+    for word in text.split():
+        proposed = f'{current} {word}'.strip()
+        if current and draw.textbbox((0, 0), proposed, font=chosen_font)[2] > max_width:
+            rows.append(current)
+            current = word
+        else:
+            current = proposed
+    if current:
+        rows.append(current)
+    return rows
+
+
+def render_scene(path, title, narration, scene, number):
+    """Arte original simples com composição, não material externo sem licença."""
+    rng = random.Random(number * 31 + scene * 71)
+    colors = [(11, 23, 49), (15, 32, 54), (31, 22, 57),
+              (14, 47, 55), (37, 25, 48)]
+    picture = Image.new('RGB', (WIDTH, HEIGHT), colors[scene])
+    draw = ImageDraw.Draw(picture)
+    for _ in range(90):
+        x, y = rng.randrange(WIDTH), rng.randrange(HEIGHT)
+        radius = rng.randrange(1, 4)
+        color = (70 + rng.randrange(55), 96 + rng.randrange(80),
+                 145 + rng.randrange(80))
+        draw.ellipse((x-radius, y-radius, x+radius, y+radius), fill=color)
+    draw.ellipse((75, 145, 645, 715), outline=(63, 181, 191), width=3)
+    draw.ellipse((138, 208, 582, 652), outline=(35, 103, 151), width=2)
+    for idx in range(9):
+        angle = idx * math.tau / 9 + scene
+        x = int(360 + 250 * math.cos(angle))
+        y = int(431 + 250 * math.sin(angle))
+        draw.ellipse((x-6, y-6, x+6, y+6), fill=(111, 231, 213))
+    draw.rounded_rectangle((48, 70, 672, 135), radius=22, fill=(18, 69, 82))
+    draw.text((72, 88), 'VIRAL IA GLOBAL  •  CIÊNCIA',
+              font=font(BOLD, 24), fill=(176, 249, 233))
+    y = 765
+    heading_font = font(BOLD, 49)
+    for row in wrap(draw, title, heading_font, 605)[:4]:
+        draw.text((56, y), row, font=heading_font, fill=(255, 255, 255))
+        y += 62
+    draw.rounded_rectangle((51, y+10, 669, y+15), radius=2,
+                           fill=(64, 211, 189))
+    y += 55
+    body_font = font(FONT, 29)
+    for row in wrap(draw, narration, body_font, 600)[:6]:
