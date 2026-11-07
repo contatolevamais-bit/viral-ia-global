@@ -74,12 +74,33 @@ def render_card(path, title, statement, scene, number, seed):
 
 def voice(text, path, silent=False):
     if silent:
-        sec=max(4.0,len(text.split())/2.3)
-        run(['ffmpeg','-y','-f','lavfi','-i','anullsrc=r=44100:cl=mono','-t',str(sec),'-c:a','aac',str(path)])
+        sec = max(4.0, len(text.split()) / 2.3)
+        run([
+            'ffmpeg', '-y',
+            '-f', 'lavfi', '-i', 'anullsrc=r=44100:cl=mono',
+            '-t', str(sec),
+            '-c:a', 'aac',
+            str(path)
+        ])
         return
-    if not shutil.which('espeak-ng'):
-        raise SystemExit('espeak-ng não instalado. Ubuntu: sudo apt-get install espeak-ng')
-    run(['espeak-ng','-v','pt-br','-s','142','-p','48','-w',str(path),text])
+
+    temp_mp3 = str(Path(path).with_suffix('.mp3'))
+
+    run([
+        'python', '-m', 'edge_tts',
+        '--voice', 'pt-BR-FranciscaNeural',
+        '--text', text,
+        '--write-media', temp_mp3
+    ])
+
+    run([
+        'ffmpeg', '-y',
+        '-i', temp_mp3,
+        '-af', 'highpass=f=120,lowpass=f=8000,acompressor=threshold=-18dB:ratio=2.5:attack=20:release=150,loudnorm',
+        '-ar', '44100',
+        '-ac', '1',
+        str(path)
+    ])
 
 
 def create_video(topic, index, output, silent=False):
