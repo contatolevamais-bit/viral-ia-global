@@ -1,1 +1,48 @@
 
+name: VIRAL IA GLOBAL - gerar videos
+
+on:
+  workflow_dispatch:
+    inputs:
+      data:
+        description: Data do teste YYYY-MM-DD
+        required: false
+        type: string
+
+  schedule:
+    - cron: '20 10 * * *'
+
+permissions:
+  contents: read
+
+jobs:
+  render:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+
+    steps:
+      - name: Baixar projeto
+        uses: actions/checkout@v4
+
+      - name: Instalar ferramentas
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y espeak-ng ffmpeg fonts-dejavu-core
+          python -m pip install "Pillow>=10,<13"
+
+      - name: Gerar videos
+        env:
+          REQUEST_DATE: ${{ inputs.data }}
+          PROJECT_START: '2026-11-07'
+          TZ: America/Fortaleza
+        run: |
+          DATE="${REQUEST_DATE:-$(TZ=America/Fortaleza date +%F)}"
+          python src/generate.py --date "$DATE" --count 3 --out output
+
+      - name: Disponibilizar videos
+        uses: actions/upload-artifact@v4
+        with:
+          name: viral-ia-videos
+          path: output/
+          retention-days: 7
+
